@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AETHER_CRYSTAL Monte Carlo</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg2: #131826;
+    --bg3: #1a2030;
+    --bg4: #232b3d;
+    --border: #2a3245;
+    --text: #e8ecf2;
+    --muted: #8a93a8;
+    --green: #4ade80;
+    --red: #ef4444;
+    --blue: #60a5fa;
+    --yellow: #fbbf24;
+    --purple: #a78bfa;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    line-height: 1.5;
+  }
+  .container { max-width: 1500px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 24px; letter-spacing: 0.05em; margin: 0 0 8px; text-transform: uppercase; }
+  h2 { font-size: 14px; letter-spacing: 0.08em; margin: 0 0 12px; text-transform: uppercase; color: var(--muted); }
+  .subtitle { color: var(--muted); margin: 0 0 24px; font-size: 13px; }
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+  }
+  .controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  input, select, button {
+    background: var(--bg3);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 7px 9px;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+  }
+  input:focus, select:focus { border-color: var(--blue); }
+  button {
+    cursor: pointer;
+    background: var(--blue);
+    color: #061122;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  button:hover { background: #93c5fd; }
+  button.secondary { background: var(--bg4); color: var(--text); }
+  button.secondary:hover { background: #2f3a52; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 9px 10px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th {
+    color: var(--muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+  tr.exotic td:first-child { color: var(--blue); }
+  tr.underlying td:first-child { color: var(--yellow); }
+  .green { color: var(--green); }
+  .red { color: var(--red); }
+  .blue { color: var(--blue); }
+  .yellow { color: var(--yellow); }
+  .stat { display: flex; flex-direction: column; gap: 2px; }
+  .stat-label {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .stat-value { font-size: 17px; font-weight: 600; }
+  canvas { width: 100%; display: block; background: var(--bg3); border-radius: 4px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 1000px) { .charts { grid-template-columns: 1fr; } }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px;
+    padding: 14px;
+    background: var(--bg3);
+    border-radius: 4px;
+    margin-top: 14px;
+  }
+  td input.vol-input { width: 80px; text-align: right; }
+  td select.side { width: 80px; }
+  .running { opacity: 0.55; pointer-events: none; }
+  .legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 14px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .legend .swatch {
+    width: 18px; height: 2px; background: var(--blue);
+  }
+  .legend.mean .swatch { background: var(--green); height: 2px; }
+  .legend.choose .swatch { background: var(--yellow); width: 2px; height: 14px; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .footnote { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  .row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>AETHER_CRYSTAL · Monte Carlo Simulator</h1>
+  <p class="subtitle">
+    GBM with zero drift, σ = 251% annual, 4 steps/day · 252 days/year. T+14 = 40 steps, T+21 = 60 steps.
+    PnL is marked to fair value (mean payoff at expiry), scaled by contract size 3000.
+  </p>
+
+  <div class="panel">
+    <h2>Simulation parameters</h2>
+    <div class="controls">
+      <label>Initial price S₀<input id="s0" type="number" step="0.001" value="50"></label>
+      <label>Volatility (annual)<input id="vol" type="number" step="0.01" value="2.51"></label>
+      <label>Drift (annual)<input id="drift" type="number" step="0.01" value="0"></label>
+      <label>Number of simulations
+        <select id="numSims">
+          <option value="1">1</option>
+          <option value="100" selected>100</option>
+          <option value="1000">1000</option>
+          <option value="2000">2000</option>
+        </select>
+      </label>
+      <label>Binary-put payout (40 strike)<input id="bpPayoff" type="number" step="0.5" value="10"></label>
+      <label>KO barrier (45-strike put)<input id="koBarrier" type="number" step="0.5" value="35"></label>
+      <label>Random seed (blank = random)<input id="seed" type="number" placeholder="optional"></label>
+      <label>&nbsp;<button id="runBtn">Run Simulation</button></label>
+    </div>
+    <div class="footnote">
+      Note: with σ = 251% the underlying is highly diffusive — fair-value estimates with N = 1 or 100 carry meaningful MC noise.
+      Use 1000 – 2000 sims for stable estimates.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Underlying paths &amp; terminal distribution</h2>
+    <div class="charts">
+      <div>
+        <div class="stat-label" style="margin-bottom:6px">
+          <span class="legend"><span class="swatch"></span>sample paths</span>
+          <span class="legend mean"><span class="swatch"></span>mean</span>
+          <span class="legend choose"><span class="swatch"></span>T+14 choice date</span>
+        </div>
+        <canvas id="pathChart" width="800" height="360"></canvas>
+      </div>
+      <div>
+        <div class="stat-label" style="margin-bottom:6px">Terminal price S(T+21) — 1st–99th percentile band</div>
+        <canvas id="distChart" width="800" height="360"></canvas>
+      </div>
+    </div>
+    <div class="stats-grid" id="priceStats"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Trade entry &amp; PnL</h2>
+    <table id="tradeTable">
+      <thead>
+        <tr>
+          <th>Option</th>
+          <th>Expiry</th>
+          <th>Bid</th>
+          <th>Ask</th>
+          <th>Max Vol</th>
+          <th>Side</th>
+          <th>Volume</th>
+          <th>Fair Value</th>
+          <th>Edge</th>
+          <th>Exp PnL × 3000</th>
+        </tr>
+      </thead>
+      <tbody id="tradeBody"></tbody>
+    </table>
+
+    <div class="row-actions">
+      <button class="secondary" id="clearBtn">Clear positions</button>
+      <span class="footnote">Buy fills at ask, sell fills at bid. Edge = (fair − ask) when buying, (bid − fair) when selling.</span>
+    </div>
+
+    <div class="stats-grid" style="margin-top:14px">
+      <div class="stat"><div class="stat-label">Net premium (paid + / received −)</div><div class="stat-value" id="totalPrem">—</div></div>
+      <div class="stat"><div class="stat-label">Expected PnL (per unit)</div><div class="stat-value" id="totalPnL">—</div></div>
+      <div class="stat"><div class="stat-label">Expected PnL × 3000</div><div class="stat-value" id="scaledPnL">—</div></div>
+      <div class="stat"><div class="stat-label">PnL std dev (× 3000)</div><div class="stat-value" id="pnlStd">—</div></div>
+      <div class="stat"><div class="stat-label">PnL 5th / 95th %ile</div><div class="stat-value" id="pnlPct">—</div></div>
+      <div class="stat"><div class="stat-label">Worst / Best sim PnL</div><div class="stat-value" id="pnlMinMax">—</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const TRADING_DAYS_PER_YEAR = 252;
+const STEPS_PER_DAY = 4;
+const STEPS_PER_YEAR = TRADING_DAYS_PER_YEAR * STEPS_PER_DAY;
+const STEPS_2W = 2 * 5 * STEPS_PER_DAY; // 40
+const STEPS_3W = 3 * 5 * STEPS_PER_DAY; // 60
+const CONTRACT_SIZE = 3000;
+const MAX_PATHS_DRAWN = 120;
+
+const PRODUCTS = [
+  { id: 'AC',         label: 'AC',         kind: 'underlying',  expiry: 'N/A',     bid: 49.975, ask: 50.025, maxVol: 200, cls: 'underlying' },
+  { id: 'AC_50_P',    label: 'AC_50_P',    kind: 'put',  K: 50, T: STEPS_3W, expiry: 'T+21', bid: 12,    ask: 12.05, maxVol: 50 },
+  { id: 'AC_50_C',    label: 'AC_50_C',    kind: 'call', K: 50, T: STEPS_3W, expiry: 'T+21', bid: 12,    ask: 12.05, maxVol: 50 },
+  { id: 'AC_35_P',    label: 'AC_35_P',    kind: 'put',  K: 35, T: STEPS_3W, expiry: 'T+21', bid: 4.33,  ask: 4.35,  maxVol: 50 },
+  { id: 'AC_40_P',    label: 'AC_40_P',    kind: 'put',  K: 40, T: STEPS_3W, expiry: 'T+21', bid: 6.5,   ask: 6.55,  maxVol: 50 },
+  { id: 'AC_45_P',    label: 'AC_45_P',    kind: 'put',  K: 45, T: STEPS_3W, expiry: 'T+21', bid: 9.05,  ask: 9.1,   maxVol: 50 },
+  { id: 'AC_60_C',    label: 'AC_60_C',    kind: 'call', K: 60, T: STEPS_3W, expiry: 'T+21', bid: 8.8,   ask: 8.85,  maxVol: 50 },
+  { id: 'AC_50_P_2',  label: 'AC_50_P_2',  kind: 'put',  K: 50, T: STEPS_2W, expiry: 'T+14', bid: 9.7,   ask: 9.75,  maxVol: 50 },
+  { id: 'AC_50_C_2',  label: 'AC_50_C_2',  kind: 'call', K: 50, T: STEPS_2W, expiry: 'T+14', bid: 9.7,   ask: 9.75,  maxVol: 50 },
+  { id: 'AC_50_CO',   label: 'AC_50_CO',   kind: 'chooser', K: 50, T_choose: STEPS_2W, T: STEPS_3W, expiry: 'T+14/21', bid: 22.2, ask: 22.3, maxVol: 50, cls: 'exotic' },
+  { id: 'AC_40_BP',   label: 'AC_40_BP',   kind: 'binary_put', K: 40, T: STEPS_3W, expiry: 'T+21', bid: 5,    ask: 5.1,   maxVol: 50, cls: 'exotic' },
+  { id: 'AC_45_KO',   label: 'AC_45_KO',   kind: 'ko_put',     K: 45, T: STEPS_3W, expiry: 'T+21', bid: 0.15, ask: 0.175, maxVol: 500, cls: 'exotic' },
+];
+
+let lastSim = null;
+
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function makeGaussian(rng) {
+  let cached = null;
+  return function() {
+    if (cached !== null) { const v = cached; cached = null; return v; }
+    let u, v;
+    do { u = rng(); } while (u < 1e-12);
+    v = rng();
+    const r = Math.sqrt(-2 * Math.log(u));
+    const a = 2 * Math.PI * v;
+    cached = r * Math.sin(a);
+    return r * Math.cos(a);
+  };
+}
+
+function runSimulation() {
+  const S0       = parseFloat(document.getElementById('s0').value);
+  const sigma    = parseFloat(document.getElementById('vol').value);
+  const mu       = parseFloat(document.getElementById('drift').value);
+  const N        = parseInt(document.getElementById('numSims').value);
+  const bpPayoff = parseFloat(document.getElementById('bpPayoff').value);
+  const koBarrier= parseFloat(document.getElementById('koBarrier').value);
+  const seedRaw  = document.getElementById('seed').value;
+  const seed     = seedRaw === '' ? (Math.random() * 2 ** 31) | 0 : parseInt(seedRaw);
+
+  const rng = mulberry32(seed);
+  const gauss = makeGaussian(rng);
+
+  const dt   = 1 / STEPS_PER_YEAR;
+  const drft = (mu - 0.5 * sigma * sigma) * dt;
+  const diff = sigma * Math.sqrt(dt);
+
+  const pathStride = Math.max(1, Math.ceil(N / MAX_PATHS_DRAWN));
+  const paths      = [];
+  const S14_arr    = new Float64Array(N);
+  const S21_arr    = new Float64Array(N);
+  const min_arr    = new Float64Array(N);
+
+  const payoffs = {};
+  for (const p of PRODUCTS) payoffs[p.id] = new Float64Array(N);
+
+  for (let i = 0; i < N; i++) {
+    let S = S0;
+    let minS = S0;
+    const savePath = (i % pathStride === 0) && paths.length < MAX_PATHS_DRAWN;
+    const path = savePath ? new Float64Array(STEPS_3W + 1) : null;
+    if (path) path[0] = S0;
+
+    for (let t = 1; t <= STEPS_3W; t++) {
+      S = S * Math.exp(drft + diff * gauss());
+      if (S < minS) minS = S;
+      if (path) path[t] = S;
+      if (t === STEPS_2W) S14_arr[i] = S;
+    }
+    S21_arr[i] = S;
+    min_arr[i] = minS;
+    if (path) paths.push(path);
+
+    const S14 = S14_arr[i];
+    const S21 = S;
+
+    payoffs.AC[i]        = S21;
+    payoffs.AC_50_P[i]   = Math.max(50 - S21, 0);
+    payoffs.AC_50_C[i]   = Math.max(S21 - 50, 0);
+    payoffs.AC_35_P[i]   = Math.max(35 - S21, 0);
+    payoffs.AC_40_P[i]   = Math.max(40 - S21, 0);
+    payoffs.AC_45_P[i]   = Math.max(45 - S21, 0);
+    payoffs.AC_60_C[i]   = Math.max(S21 - 60, 0);
+    payoffs.AC_50_P_2[i] = Math.max(50 - S14, 0);
+    payoffs.AC_50_C_2[i] = Math.max(S14 - 50, 0);
+    payoffs.AC_50_CO[i]  = (S14 >= 50)
+      ? Math.max(S21 - 50, 0)
+      : Math.max(50 - S21, 0);
+    payoffs.AC_40_BP[i]  = (S21 < 40) ? bpPayoff : 0;
+    payoffs.AC_45_KO[i]  = (minS < koBarrier) ? 0 : Math.max(45 - S21, 0);
+  }
+
+  const fair = {};
+  for (const p of PRODUCTS) {
+    let s = 0;
+    const arr = payoffs[p.id];
+    for (let i = 0; i < N; i++) s += arr[i];
+    fair[p.id] = s / N;
+  }
+
+  lastSim = { paths, S14_arr, S21_arr, min_arr, payoffs, fair, n: N, S0, sigma, bpPayoff, koBarrier };
+
+  drawPathChart();
+  drawDistChart();
+  updatePriceStats();
+  updateTradeTable();
+}
+
+function drawPathChart() {
+  const c = document.getElementById('pathChart');
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!lastSim) return;
+
+  let ymin = Infinity, ymax = -Infinity;
+  for (const path of lastSim.paths) {
+    for (let i = 0; i < path.length; i++) {
+      const v = path[i];
+      if (v < ymin) ymin = v;
+      if (v > ymax) ymax = v;
+    }
+  }
+  if (!Number.isFinite(ymin)) { ymin = lastSim.S0 * 0.5; ymax = lastSim.S0 * 1.5; }
+  const padY = (ymax - ymin) * 0.05 + 1e-9;
+  ymin -= padY; ymax += padY;
+
+  const pad = { l: 56, r: 12, t: 14, b: 28 };
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+  const len   = STEPS_3W + 1;
+  const xS    = i => pad.l + (i / (len - 1)) * plotW;
+  const yS    = v => pad.t + plotH - ((v - ymin) / (ymax - ymin)) * plotH;
+
+  ctx.strokeStyle = '#2a3245';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#8a93a8';
+  ctx.font = '11px ui-monospace, monospace';
+  for (let i = 0; i <= 5; i++) {
+    const v = ymin + (ymax - ymin) * i / 5;
+    const y = yS(v);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+    ctx.fillText(v.toFixed(1), 6, y + 4);
+  }
+
+  const x14 = xS(STEPS_2W);
+  ctx.strokeStyle = '#fbbf24'; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(x14, pad.t); ctx.lineTo(x14, h - pad.b); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#8a93a8';
+  ctx.fillText('T+0',  xS(0) - 4, h - 8);
+  ctx.fillText('T+14', x14 - 14,  h - 8);
+  ctx.fillText('T+21', xS(STEPS_3W) - 26, h - 8);
+
+  const alpha = Math.max(0.06, Math.min(0.7, 30 / Math.max(1, lastSim.paths.length)));
+  ctx.strokeStyle = `rgba(96,165,250,${alpha})`;
+  ctx.lineWidth = 1;
+  for (const path of lastSim.paths) {
+    ctx.beginPath();
+    for (let i = 0; i < path.length; i++) {
+      const x = xS(i), y = yS(path[i]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // Mean across ALL sims (not just drawn paths) — recompute per step from S14/S21 we don't have, so build it lazily
+  // We only have full paths for the sampled set; mean line is approximate from those.
+  const meanPath = new Float64Array(len);
+  for (const p of lastSim.paths) for (let i = 0; i < len; i++) meanPath[i] += p[i];
+  for (let i = 0; i < len; i++) meanPath[i] /= Math.max(1, lastSim.paths.length);
+  ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < len; i++) {
+    const x = xS(i), y = yS(meanPath[i]);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function drawDistChart() {
+  const c = document.getElementById('distChart');
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!lastSim) return;
+
+  if (lastSim.n < 2) {
+    ctx.fillStyle = '#8a93a8';
+    ctx.font = '13px ui-monospace, monospace';
+    ctx.fillText('Need ≥ 2 simulations for a distribution.', 22, 30);
+    return;
+  }
+
+  const data = Array.from(lastSim.S21_arr).sort((a, b) => a - b);
+  const lo = data[Math.max(0, Math.floor(data.length * 0.005))];
+  const hi = data[Math.min(data.length - 1, Math.floor(data.length * 0.995))];
+  if (!(hi > lo)) return;
+
+  const nbins = Math.min(50, Math.max(20, Math.floor(Math.sqrt(lastSim.n))));
+  const binW  = (hi - lo) / nbins;
+  const counts = new Array(nbins).fill(0);
+  for (const v of data) {
+    if (v < lo || v > hi) continue;
+    let b = Math.floor((v - lo) / binW);
+    if (b >= nbins) b = nbins - 1;
+    counts[b]++;
+  }
+  const cmax = Math.max(...counts);
+
+  const pad = { l: 56, r: 12, t: 14, b: 28 };
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+
+  ctx.fillStyle = '#60a5fa';
+  for (let i = 0; i < nbins; i++) {
+    const barH = (counts[i] / cmax) * plotH;
+    const x = pad.l + (i / nbins) * plotW;
+    const bw = plotW / nbins;
+    ctx.fillRect(x + 1, pad.t + plotH - barH, bw - 2, barH);
+  }
+
+  ctx.fillStyle = '#8a93a8';
+  ctx.font = '11px ui-monospace, monospace';
+  for (let i = 0; i <= 5; i++) {
+    const v = lo + (hi - lo) * i / 5;
+    const x = pad.l + (i / 5) * plotW;
+    ctx.fillText(v.toFixed(1), x - 14, h - 8);
+  }
+
+  const S0 = lastSim.S0;
+  if (S0 >= lo && S0 <= hi) {
+    const x = pad.l + ((S0 - lo) / (hi - lo)) * plotW;
+    ctx.strokeStyle = '#fbbf24'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + plotH); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillText('S₀=' + S0, x + 4, pad.t + 12);
+  }
+
+  // Mark strikes 35, 40, 45, 50, 60 if in view
+  const strikes = [
+    [35, '#a78bfa'], [40, '#a78bfa'], [45, '#a78bfa'],
+    [50, '#ef4444'], [60, '#a78bfa']
+  ];
+  ctx.font = '10px ui-monospace, monospace';
+  for (const [k, col] of strikes) {
+    if (k < lo || k > hi) continue;
+    const x = pad.l + ((k - lo) / (hi - lo)) * plotW;
+    ctx.strokeStyle = col; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + plotH); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = col; ctx.fillText(String(k), x + 2, pad.t + 24);
+  }
+}
+
+function pct(arr, p) {
+  const sorted = Array.from(arr).sort((a, b) => a - b);
+  const idx = Math.floor(sorted.length * p);
+  return sorted[Math.min(Math.max(0, idx), sorted.length - 1)];
+}
+function meanArr(arr) { let s = 0; for (const v of arr) s += v; return s / arr.length; }
+function stdArr(arr) {
+  const m = meanArr(arr);
+  let s = 0; for (const v of arr) s += (v - m) * (v - m);
+  return Math.sqrt(s / arr.length);
+}
+
+function updatePriceStats() {
+  const el = document.getElementById('priceStats');
+  if (!lastSim) { el.innerHTML = ''; return; }
+  const { S14_arr, S21_arr, min_arr, n, koBarrier } = lastSim;
+
+  let p_below40 = 0, p_ko = 0, p_above60 = 0;
+  for (let i = 0; i < n; i++) {
+    if (S21_arr[i] < 40) p_below40++;
+    if (S21_arr[i] > 60) p_above60++;
+    if (min_arr[i] < koBarrier) p_ko++;
+  }
+
+  const stats = [
+    ['Sims',                String(n)],
+    ['Mean S(T+14)',        meanArr(S14_arr).toFixed(3)],
+    ['Mean S(T+21)',        meanArr(S21_arr).toFixed(3)],
+    ['Median S(T+21)',      pct(S21_arr, 0.5).toFixed(3)],
+    ['5%ile S(T+21)',       pct(S21_arr, 0.05).toFixed(3)],
+    ['95%ile S(T+21)',      pct(S21_arr, 0.95).toFixed(3)],
+    ['Std S(T+21)',         stdArr(S21_arr).toFixed(3)],
+    ['Mean min path',       meanArr(min_arr).toFixed(3)],
+    ['P(S21 < 40)',         (p_below40 / n).toFixed(3)],
+    ['P(S21 > 60)',         (p_above60 / n).toFixed(3)],
+    [`P(min < ${koBarrier})`, (p_ko / n).toFixed(3)],
+  ];
+
+  el.innerHTML = stats.map(([k, v]) =>
+    `<div class="stat"><div class="stat-label">${k}</div><div class="stat-value">${v}</div></div>`
+  ).join('');
+}
+
+function buildTradeTable() {
+  const tbody = document.getElementById('tradeBody');
+  tbody.innerHTML = PRODUCTS.map(p => `
+    <tr data-id="${p.id}" class="${p.cls || ''}">
+      <td>${p.label}</td>
+      <td>${p.expiry}</td>
+      <td class="green">${p.bid}</td>
+      <td class="red">${p.ask}</td>
+      <td>${p.maxVol}</td>
+      <td>
+        <select class="side" data-id="${p.id}">
+          <option value="">—</option>
+          <option value="buy">BUY</option>
+          <option value="sell">SELL</option>
+        </select>
+      </td>
+      <td><input class="vol-input" type="number" min="0" max="${p.maxVol}" step="1" data-id="${p.id}" placeholder="0"></td>
+      <td class="fair-cell">—</td>
+      <td class="edge-cell">—</td>
+      <td class="pnl-cell">—</td>
+    </tr>
+  `).join('');
+
+  tbody.addEventListener('change', updateTradeTable);
+  tbody.addEventListener('input',  updateTradeTable);
+
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    document.querySelectorAll('select.side').forEach(s => s.value = '');
+    document.querySelectorAll('input.vol-input').forEach(i => i.value = '');
+    updateTradeTable();
+  });
+}
+
+function updateTradeTable() {
+  if (!lastSim) return;
+  const N = lastSim.n;
+  const totalPnLPerSim = new Float64Array(N);
+  let totalNetPremium = 0;
+  let totalExpectedPnLPerUnit = 0;
+
+  for (const p of PRODUCTS) {
+    const row = document.querySelector(`tr[data-id="${p.id}"]`);
+    if (!row) continue;
+
+    const sideEl = row.querySelector('select.side');
+    const volEl  = row.querySelector('input.vol-input');
+    const fairEl = row.querySelector('.fair-cell');
+    const edgeEl = row.querySelector('.edge-cell');
+    const pnlEl  = row.querySelector('.pnl-cell');
+
+    const fair = lastSim.fair[p.id];
+    fairEl.textContent = fair.toFixed(3);
+
+    const side = sideEl.value;
+    let vol = parseFloat(volEl.value);
+    if (!Number.isFinite(vol) || vol < 0) vol = 0;
+    if (vol > p.maxVol) { vol = p.maxVol; volEl.value = vol; }
+
+    if (!side || vol === 0) {
+      edgeEl.textContent = '—'; edgeEl.className = 'edge-cell';
+      pnlEl.textContent  = '—'; pnlEl.className  = 'pnl-cell';
+      continue;
+    }
+
+    const edge = side === 'buy' ? (fair - p.ask) : (p.bid - fair);
+    edgeEl.textContent = edge.toFixed(3);
+    edgeEl.className   = 'edge-cell ' + (edge >= 0 ? 'green' : 'red');
+
+    const expPnLUnit = edge * vol;
+    const scaled     = expPnLUnit * CONTRACT_SIZE;
+    pnlEl.textContent = scaled.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    pnlEl.className   = 'pnl-cell ' + (expPnLUnit >= 0 ? 'green' : 'red');
+
+    totalNetPremium          += (side === 'buy' ? -p.ask : p.bid) * vol;
+    totalExpectedPnLPerUnit  += expPnLUnit;
+
+    const arr  = lastSim.payoffs[p.id];
+    const sign = side === 'buy' ? 1 : -1;
+    const ref  = side === 'buy' ? p.ask : p.bid;
+    for (let i = 0; i < N; i++) {
+      totalPnLPerSim[i] += sign * (arr[i] - ref) * vol;
+    }
+  }
+
+  for (let i = 0; i < N; i++) totalPnLPerSim[i] *= CONTRACT_SIZE;
+
+  const fmt = v => v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  document.getElementById('totalPrem').textContent = totalNetPremium.toFixed(2);
+  document.getElementById('totalPnL').textContent  = totalExpectedPnLPerUnit.toFixed(3);
+  const scaled = totalExpectedPnLPerUnit * CONTRACT_SIZE;
+  document.getElementById('scaledPnL').textContent = fmt(scaled);
+  document.getElementById('scaledPnL').className   = 'stat-value ' + (scaled >= 0 ? 'green' : 'red');
+  document.getElementById('totalPnL').className    = 'stat-value ' + (totalExpectedPnLPerUnit >= 0 ? 'green' : 'red');
+
+  if (N > 1) {
+    document.getElementById('pnlStd').textContent    = fmt(stdArr(totalPnLPerSim));
+    document.getElementById('pnlPct').textContent    =
+      `${fmt(pct(totalPnLPerSim, 0.05))} / ${fmt(pct(totalPnLPerSim, 0.95))}`;
+    let mn = Infinity, mx = -Infinity;
+    for (const v of totalPnLPerSim) { if (v < mn) mn = v; if (v > mx) mx = v; }
+    document.getElementById('pnlMinMax').textContent = `${fmt(mn)} / ${fmt(mx)}`;
+  } else {
+    document.getElementById('pnlStd').textContent    = '—';
+    document.getElementById('pnlPct').textContent    = '—';
+    document.getElementById('pnlMinMax').textContent = '—';
+  }
+}
+
+document.getElementById('runBtn').addEventListener('click', () => {
+  const btn = document.getElementById('runBtn');
+  btn.textContent = 'Running…';
+  btn.disabled = true;
+  setTimeout(() => {
+    runSimulation();
+    btn.textContent = 'Run Simulation';
+    btn.disabled = false;
+  }, 0);
+});
+
+buildTradeTable();
+runSimulation();
+</script>
+</body>
+</html>
