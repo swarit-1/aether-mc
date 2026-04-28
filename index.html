@@ -203,6 +203,8 @@
     </table>
 
     <div class="row-actions">
+      <button class="secondary" id="loadOptimalBtn" title="Loads BS-derived edges only (assumes specified BP payout & KO barrier)">Load optimal strategy</button>
+      <button class="secondary" id="loadSafeBtn" title="Vanillas-only — skips param-uncertain exotics">Load confident-only</button>
       <button class="secondary" id="clearBtn">Clear positions</button>
       <span class="footnote">Buy fills at ask, sell fills at bid. Edge = (fair − ask) when buying, (bid − fair) when selling.</span>
     </div>
@@ -570,6 +572,36 @@ function buildTradeTable() {
     document.querySelectorAll('input.vol-input').forEach(i => i.value = '');
     updateTradeTable();
   });
+
+  // Optimal strategy (from 2M-sim MC + Black-Scholes cross-check):
+  // Trade only positions whose edge clears MC noise. Volumes = max allowed.
+  const OPTIMAL = {
+    AC_50_C_2: { side: 'buy',  vol: 50  }, // 2w ATM call:  edge ≈ +0.121
+    AC_50_P_2: { side: 'buy',  vol: 50  }, // 2w ATM put:   edge ≈ +0.121
+    AC_50_CO:  { side: 'sell', vol: 50  }, // chooser:       edge ≈ +0.302
+    AC_40_BP:  { side: 'sell', vol: 50  }, // binary put:    edge depends on payout (sell if payout ≤ ~$10.5)
+    AC_45_KO:  { side: 'buy',  vol: 500 }, // KO put:        edge depends on barrier (buy if barrier ≲ ~$36)
+  };
+  // "Confident only" = vanillas + chooser; skip param-uncertain exotics.
+  const SAFE = {
+    AC_50_C_2: { side: 'buy',  vol: 50 },
+    AC_50_P_2: { side: 'buy',  vol: 50 },
+    AC_50_CO:  { side: 'sell', vol: 50 },
+  };
+
+  function applyPreset(preset) {
+    document.querySelectorAll('select.side').forEach(s => s.value = '');
+    document.querySelectorAll('input.vol-input').forEach(i => i.value = '');
+    for (const [id, p] of Object.entries(preset)) {
+      const sel = document.querySelector(`select.side[data-id="${id}"]`);
+      const inp = document.querySelector(`input.vol-input[data-id="${id}"]`);
+      if (sel) sel.value = p.side;
+      if (inp) inp.value = p.vol;
+    }
+    updateTradeTable();
+  }
+  document.getElementById('loadOptimalBtn').addEventListener('click', () => applyPreset(OPTIMAL));
+  document.getElementById('loadSafeBtn').addEventListener('click', () => applyPreset(SAFE));
 }
 
 function updateTradeTable() {
